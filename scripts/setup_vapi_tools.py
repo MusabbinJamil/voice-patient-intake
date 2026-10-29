@@ -50,18 +50,28 @@ _REQUIRED_PROPS = {
 
 
 def tool_defs(webhook: str, secret: str) -> list[dict]:
-    register_params = {
+    # Any subset of patient fields can be sent incrementally.
+    all_fields = {**_REQUIRED_PROPS, **OPTIONAL_PROPS}
+
+    save_params = {
         "type": "object",
-        "properties": {**_REQUIRED_PROPS, **OPTIONAL_PROPS},
-        "required": list(_REQUIRED_PROPS.keys()),
+        "properties": {
+            **all_fields,
+            "start_over": {
+                "type": "boolean",
+                "description": "Set true to discard everything collected and restart.",
+            },
+        },
+        "required": [],
+    }
+    finalize_params = {
+        "type": "object",
+        "properties": all_fields,  # optional last-minute fields
+        "required": [],
     }
     update_params = {
         "type": "object",
-        "properties": {
-            "patient_id": {"type": "string"},
-            **_REQUIRED_PROPS,
-            **OPTIONAL_PROPS,
-        },
+        "properties": {"patient_id": {"type": "string"}, **all_fields},
         "required": ["patient_id"],
     }
     lookup_params = {
@@ -86,10 +96,23 @@ def tool_defs(webhook: str, secret: str) -> list[dict]:
         {
             "type": "function",
             "function": {
-                "name": "register_patient",
-                "description": "Create a new patient record. Only call AFTER reading "
-                "all fields back and getting the caller's confirmation.",
-                "parameters": register_params,
+                "name": "save_patient_progress",
+                "description": "Persist the patient fields collected SO FAR, in real "
+                "time. Call it each time the caller gives a field, passing just that "
+                "field. Returns what's still required, or VALIDATION_ERROR if a value "
+                "is invalid (re-ask for that field). Pass start_over=true to reset.",
+                "parameters": save_params,
+            },
+            "server": server,
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "finalize_registration",
+                "description": "Mark the patient as registered. Call ONLY after reading "
+                "everything back and the caller confirms. Fails with INCOMPLETE if any "
+                "required field is missing — never claim success without a SUCCESS result.",
+                "parameters": finalize_params,
             },
             "server": server,
         },
@@ -97,8 +120,8 @@ def tool_defs(webhook: str, secret: str) -> list[dict]:
             "type": "function",
             "function": {
                 "name": "update_patient",
-                "description": "Update an existing patient (use the patient_id from "
-                "lookup). Send only the fields that are changing.",
+                "description": "Update an existing registered patient (use the patient_id "
+                "from lookup). Send only the fields that are changing.",
                 "parameters": update_params,
             },
             "server": server,
@@ -148,6 +171,11 @@ def main() -> None:
     if not key or not assistant_id or not secret:
         raise SystemExit("Set VAPI_KEY, ASSISTANT_ID and VAPI_SECRET (see header).")
 
+    print(f"Reading assistant {assistant_id} ...")
+    assistant = _request("GET", f"/assistant/{assistant_id}", key)
+    model = assistant.get("model") or {}
+    old_tool_ids = list(model.get("toolIds") or [])
+
     print("Creating tools on Vapi...")
     tool_ids: list[str] = []
     for d in defs:
@@ -158,26 +186,32 @@ def main() -> None:
         print(f"  {d['function']['name']:24} -> {tid}")
         tool_ids.append(tid)
 
-    print(f"Reading assistant {assistant_id} ...")
-    assistant = _request("GET", f"/assistant/{assistant_id}", key)
-    model = assistant.get("model") or {}
-    existing = model.get("toolIds") or []
-    model["toolIds"] = list(dict.fromkeys(existing + tool_ids))  # dedupe, keep order
-
+    # Replace (not append) so re-running cleanly swaps the tool set.
+    model["toolIds"] = tool_ids
     patch = {
         "model": model,
         "server": {"url": webhook, "secret": secret},
         "serverMessages": ["end-of-call-report", "status-update"],
     }
-    print("Attaching tools + wiring end-of-call webhook ...")
+    print("Attaching new tools + wiring end-of-call webhook ...")
     updated = _request("PATCH", f"/assistant/{assistant_id}", key, patch)
+
+    # Delete the now-detached old tools to keep the account tidy.
+    for old in old_tool_ids:
+        if old not in tool_ids:
+            try:
+                _request("DELETE", f"/tool/{old}", key)
+                print(f"  removed old tool {old}")
+            except SystemExit:
+                pass
+
     print(json.dumps({
         "id": updated.get("id"),
         "name": updated.get("name"),
         "toolIds": (updated.get("model") or {}).get("toolIds"),
         "server": (updated.get("server") or {}).get("url"),
     }, indent=2))
-    print("\nDone. Now Publish the assistant, then claim a phone number and assign it.")
+    print("\nDone. Now Publish the assistant, then (re)claim/assign the phone number.")
 
 
 if __name__ == "__main__":

@@ -1,29 +1,26 @@
 {
-  "_comment": "Importable Vapi assistant config. Server URL is already set to the live Render app; replace YOUR_SECRET with your VAPI_SHARED_SECRET. The system prompt here is a condensed copy of vapi/system_prompt.md (keep them in sync). Vapi's schema evolves; if import complains, create the assistant in the dashboard and copy these values field-by-field.",
+  "_comment": "Reference Vapi assistant config. The recommended way to provision the tools is scripts/setup_vapi_tools.py (it creates them via the API). Server URL is already the live Render app; replace YOUR_SECRET with your VAPI_SHARED_SECRET. System prompt here is a condensed copy of vapi/system_prompt.md (keep them in sync).",
   "name": "Patient Intake — Avery",
   "firstMessage": "Hi, thanks for calling. I can help get you registered as a new patient. To start, could I get your first name?",
   "model": {
-    "provider": "groq",
-    "model": "llama-3.3-70b-versatile",
+    "provider": "openai",
+    "model": "gpt-4.1",
     "temperature": 0.3,
     "messages": [
       {
         "role": "system",
-        "content": "You are Avery, a warm, efficient patient intake coordinator for a U.S. clinic, on a live phone call. Speak naturally and concisely, one question at a time; never sound like an IVR. Collect the REQUIRED fields: first_name, last_name, date_of_birth (accept natural phrasing, pass as MM/DD/YYYY, never in the future), sex (Male/Female/Other/Decline to Answer), phone_number (10 US digits), address_line_1, city, state (store 2-letter code), zip_code (5 or ZIP+4). As soon as you have the phone number, call lookup_patient_by_phone; if a record is FOUND, offer to UPDATE instead of creating a new one. After required fields, OFFER optional ones without grilling: insurance_provider, insurance_member_id, emergency_contact_name, emergency_contact_phone, preferred_language. Before saving, READ BACK every collected field and get a clear yes. Only then call register_patient (or update_patient). Relay the tool result: on SUCCESS say 'You're all set, [First Name].' and end warmly; on VALIDATION_ERROR re-prompt only for the named field(s) and retry; on SAVE_FAILED apologize and do not claim success. Handle corrections and spelled-out fixes exactly, accept out-of-order answers, allow 'start over', and let the caller interrupt. If the caller speaks Spanish, continue in Spanish and set preferred_language to Spanish. Never claim a save without a SUCCESS result; never invent data; keep every turn short."
+        "content": "You are Avery, a warm, efficient patient intake coordinator for a U.S. clinic, on a live phone call. Speak naturally and concisely, one question at a time; never sound like an IVR. Store data in REAL TIME: every time the caller gives a field, call save_patient_progress with just that field — it persists immediately and tells you what's still required, or returns VALIDATION_ERROR if a value is invalid (then re-ask for that field only). Required fields: first_name, last_name, date_of_birth (MM/DD/YYYY, never future), sex (Male/Female/Other/Decline to Answer), phone_number (10 US digits), address_line_1, city, state (valid 2-letter US state only — this clinic is in the US), zip_code. As soon as you have the phone number, call lookup_patient_by_phone; if FOUND, offer to update instead. When all required fields are collected, OFFER optional info (insurance_provider, insurance_member_id, emergency_contact_name, emergency_contact_phone, preferred_language) and save what they opt into. Then READ BACK everything and get a clear yes. Only then call finalize_registration: SUCCESS means say 'You're all set, [First Name].' and end; INCOMPLETE means keep collecting (do NOT claim success); DUPLICATE means offer update_patient; SAVE_FAILED means apologize. NEVER tell the caller they're registered without a SUCCESS result. Handle corrections (re-call save_patient_progress), accept several fields at once, allow start_over via save_patient_progress({start_over:true}), and let the caller interrupt. If the caller speaks Spanish, continue in Spanish and set preferred_language to Spanish. Keep every turn short; collect demographics only."
       }
     ],
     "tools": [
       {
         "type": "function",
-        "async": false,
         "function": {
           "name": "lookup_patient_by_phone",
-          "description": "Look up whether an existing patient already has this phone number. Call this as soon as you have the caller's phone number.",
+          "description": "Look up whether an existing patient has this phone number. Call as soon as you have the caller's phone number.",
           "parameters": {
             "type": "object",
-            "properties": {
-              "phone_number": { "type": "string", "description": "Caller's US phone number, digits only or spoken." }
-            },
+            "properties": { "phone_number": { "type": "string" } },
             "required": ["phone_number"]
           }
         },
@@ -31,10 +28,9 @@
       },
       {
         "type": "function",
-        "async": false,
         "function": {
-          "name": "register_patient",
-          "description": "Create a new patient record. Only call AFTER reading all fields back and getting the caller's confirmation.",
+          "name": "save_patient_progress",
+          "description": "Persist the fields collected so far, in real time. Call each time the caller gives a field, passing just that field. Returns what's still required, or VALIDATION_ERROR for an invalid value. Pass start_over=true to reset.",
           "parameters": {
             "type": "object",
             "properties": {
@@ -53,40 +49,31 @@
               "insurance_member_id": { "type": "string" },
               "preferred_language": { "type": "string" },
               "emergency_contact_name": { "type": "string" },
-              "emergency_contact_phone": { "type": "string" }
+              "emergency_contact_phone": { "type": "string" },
+              "start_over": { "type": "boolean" }
             },
-            "required": ["first_name", "last_name", "date_of_birth", "sex", "phone_number", "address_line_1", "city", "state", "zip_code"]
+            "required": []
           }
         },
         "server": { "url": "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" }
       },
       {
         "type": "function",
-        "async": false,
+        "function": {
+          "name": "finalize_registration",
+          "description": "Mark the patient registered. Call ONLY after reading everything back and the caller confirms. Fails with INCOMPLETE if any required field is missing — never claim success without a SUCCESS result.",
+          "parameters": { "type": "object", "properties": {}, "required": [] }
+        },
+        "server": { "url": "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" }
+      },
+      {
+        "type": "function",
         "function": {
           "name": "update_patient",
-          "description": "Update an existing patient's record. Use the patient_id returned by lookup_patient_by_phone. Only send fields that are changing.",
+          "description": "Update an existing registered patient (use the patient_id from lookup). Send only the fields that are changing.",
           "parameters": {
             "type": "object",
-            "properties": {
-              "patient_id": { "type": "string" },
-              "first_name": { "type": "string" },
-              "last_name": { "type": "string" },
-              "date_of_birth": { "type": "string" },
-              "sex": { "type": "string" },
-              "phone_number": { "type": "string" },
-              "address_line_1": { "type": "string" },
-              "address_line_2": { "type": "string" },
-              "city": { "type": "string" },
-              "state": { "type": "string" },
-              "zip_code": { "type": "string" },
-              "email": { "type": "string" },
-              "insurance_provider": { "type": "string" },
-              "insurance_member_id": { "type": "string" },
-              "preferred_language": { "type": "string" },
-              "emergency_contact_name": { "type": "string" },
-              "emergency_contact_phone": { "type": "string" }
-            },
+            "properties": { "patient_id": { "type": "string" } },
             "required": ["patient_id"]
           }
         },
@@ -97,7 +84,7 @@
   "voice": { "provider": "vapi", "voiceId": "Elliot" },
   "transcriber": { "provider": "deepgram", "model": "nova-2", "language": "en" },
   "server": { "url": "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" },
-  "endCallPhrases": ["goodbye", "take care", "have a great day"],
+  "serverMessages": ["end-of-call-report", "status-update"],
   "silenceTimeoutSeconds": 30,
   "maxDurationSeconds": 600
 }

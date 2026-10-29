@@ -34,13 +34,18 @@ def list_patients(
     last_name: Optional[str] = None,
     date_of_birth: Optional[str] = None,
     phone_number: Optional[str] = None,
+    status: str = "registered",
     db: Session = Depends(get_db),
 ):
+    # Default to completed registrations; `?status=all` includes in-progress
+    # drafts, `?status=draft` shows only them.
+    status_filter = None if status == "all" else status
     patients = crud.list_patients(
         db,
         last_name=last_name,
         date_of_birth=date_of_birth,
         phone_number=phone_number,
+        status=status_filter,
     )
     return envelope([_out(p) for p in patients])
 

@@ -22,6 +22,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .config import settings
 from .db import Base, engine
 from .dashboard import router as dashboard_router
+from .migrate import ensure_schema
 from .responses import envelope, error_body
 from .routers.patients import router as patients_router
 from .routers.vapi import router as vapi_router
@@ -37,8 +38,11 @@ logger = logging.getLogger("app")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Create tables on startup (create_all over Alembic — documented trade-off).
+    # Create tables on startup (create_all over Alembic — documented trade-off),
+    # then evolve any pre-existing table to the current (draft-aware) schema
+    # without dropping data.
     Base.metadata.create_all(bind=engine)
+    ensure_schema(engine)
     if settings.seed_on_startup:
         seed_if_empty()
     logger.info("Startup complete (env=%s)", settings.app_env)

@@ -91,41 +91,83 @@ def test_query_filters(client):
     assert len(r2.json()["data"]) >= 1
 
 
-def test_vapi_register_tool_roundtrip(client):
-    payload = {
+def _toolcall(name, args, call_id="call_test"):
+    return {
         "message": {
             "type": "tool-calls",
-            "toolCalls": [
-                {
-                    "id": "call_1",
-                    "function": {
-                        "name": "register_patient",
-                        "arguments": _valid_payload(phone_number="4085550188"),
-                    },
-                }
-            ],
+            "call": {"id": call_id},
+            "toolCalls": [{"id": "tc1", "function": {"name": name, "arguments": args}}],
         }
     }
-    r = client.post("/vapi/webhook", json=payload)
-    assert r.status_code == 200
-    result = r.json()["results"][0]["result"]
-    assert "SUCCESS" in result
 
 
-def test_vapi_register_tool_validation_error(client):
-    payload = {
-        "message": {
-            "type": "tool-calls",
-            "toolCalls": [
-                {
-                    "id": "call_2",
-                    "function": {
-                        "name": "register_patient",
-                        "arguments": _valid_payload(date_of_birth="01/01/2999"),
-                    },
-                }
-            ],
-        }
+def _result(resp):
+    assert resp.status_code == 200
+    return resp.json()["results"][0]["result"]
+
+
+def test_vapi_incremental_save_then_finalize(client):
+    cid = "call_flow_1"
+    # Field-by-field persistence (real-time).
+    assert "SAVED" in _result(
+        client.post("/vapi/webhook", json=_toolcall("save_patient_progress", {"first_name": "Dana"}, cid))
+    )
+    rest = {
+        "last_name": "Lee",
+        "date_of_birth": "04/09/1991",
+        "sex": "female",
+        "phone_number": "7185550123",
+        "address_line_1": "12 Oak St",
+        "city": "Queens",
+        "state": "NY",
+        "zip_code": "11375",
     }
-    r = client.post("/vapi/webhook", json=payload)
-    assert "VALIDATION_ERROR" in r.json()["results"][0]["result"]
+    assert "SAVED" in _result(
+        client.post("/vapi/webhook", json=_toolcall("save_patient_progress", rest, cid))
+    )
+
+    # Draft is persisted but NOT in the default (registered) listing...
+    reg_phones = [p["phone_number"] for p in client.get("/patients").json()["data"]]
+    assert "7185550123" not in reg_phones
+    # ...it shows under ?status=draft (proves real-time storage).
+    draft_phones = [
+        p["phone_number"] for p in client.get("/patients", params={"status": "draft"}).json()["data"]
+    ]
+    assert "7185550123" in draft_phones
+
+    # Finalize -> registered.
+    assert "SUCCESS" in _result(
+        client.post("/vapi/webhook", json=_toolcall("finalize_registration", {}, cid))
+    )
+    reg = [p for p in client.get("/patients").json()["data"] if p["phone_number"] == "7185550123"]
+    assert len(reg) == 1 and reg[0]["status"] == "registered"
+
+
+def test_vapi_per_field_validation_rejects_bad_state(client):
+    r = _result(
+        client.post("/vapi/webhook", json=_toolcall("save_patient_progress", {"state": "Sindh"}, "call_bad"))
+    )
+    assert "VALIDATION_ERROR" in r
+
+
+def test_vapi_finalize_incomplete_is_blocked(client):
+    cid = "call_incomplete"
+    client.post("/vapi/webhook", json=_toolcall("save_patient_progress", {"first_name": "Sam"}, cid))
+    r = _result(client.post("/vapi/webhook", json=_toolcall("finalize_registration", {}, cid)))
+    assert "INCOMPLETE" in r
+
+
+def test_vapi_lookup_finds_registered(client):
+    client.post("/patients", json=_valid_payload(phone_number="3125550111"))
+    r = _result(
+        client.post("/vapi/webhook", json=_toolcall("lookup_patient_by_phone", {"phone_number": "312-555-0111"}))
+    )
+    assert "FOUND" in r
+
+
+def test_vapi_start_over_clears_draft(client):
+    cid = "call_reset"
+    client.post("/vapi/webhook", json=_toolcall("save_patient_progress", {"first_name": "Temp"}, cid))
+    assert "RESET" in _result(
+        client.post("/vapi/webhook", json=_toolcall("save_patient_progress", {"start_over": True}, cid))
+    )

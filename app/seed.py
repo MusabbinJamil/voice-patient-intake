@@ -17,6 +17,7 @@ logger = logging.getLogger("app.seed")
 
 _SEED = [
     dict(
+        status="registered",
         first_name="Jane",
         last_name="Doe",
         date_of_birth=date(1985, 3, 15),
@@ -32,6 +33,7 @@ _SEED = [
         preferred_language="English",
     ),
     dict(
+        status="registered",
         first_name="Carlos",
         last_name="Ramirez",
         date_of_birth=date(1972, 11, 2),

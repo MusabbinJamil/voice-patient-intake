@@ -1,13 +1,14 @@
 """SQLAlchemy ORM models — the persistent schema.
 
 Design notes:
-* `patient_id` is a UUID primary key (portable across Postgres/SQLite via
-  SQLAlchemy's `Uuid` type).
-* `sex` is stored as text with a CHECK constraint rather than a native DB enum,
-  so the exact human-readable values are enforced identically on Postgres and
-  SQLite without enum-name/value surprises.
-* Deletes are *soft*: `deleted_at` is stamped and the row is kept, as the spec
-  requires (no hard deletes).
+* `patient_id` is a UUID primary key (portable across Postgres/SQLite).
+* Records are captured **incrementally**: the voice agent persists each field as
+  it is collected, so a row can be a partial `draft` before it becomes
+  `registered`. Required columns are therefore nullable at the column level, but
+  a CHECK constraint guarantees that any row with status='registered' has every
+  required field populated — so completeness is still enforced by the database.
+* `sex` is stored as text with a CHECK constraint (portable, exact values).
+* Deletes are *soft*: `deleted_at` is stamped and the row is kept.
 * `created_at` / `updated_at` are DB-maintained in UTC.
 """
 from __future__ import annotations
@@ -16,6 +17,7 @@ import uuid
 from datetime import date, datetime
 
 from sqlalchemy import (
+    JSON,
     CheckConstraint,
     Date,
     DateTime,
@@ -25,37 +27,60 @@ from sqlalchemy import (
     Uuid,
     func,
 )
-from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
 
 SEX_VALUES = ("Male", "Female", "Other", "Decline to Answer")
+REQUIRED_FIELDS = (
+    "first_name",
+    "last_name",
+    "date_of_birth",
+    "sex",
+    "phone_number",
+    "address_line_1",
+    "city",
+    "state",
+    "zip_code",
+)
+
+_REGISTERED_COMPLETE = (
+    "status <> 'registered' OR ("
+    + " AND ".join(f"{c} IS NOT NULL" for c in REQUIRED_FIELDS)
+    + ")"
+)
 
 
 class Patient(Base):
     __tablename__ = "patients"
     __table_args__ = (
         CheckConstraint(
-            "sex IN ('Male','Female','Other','Decline to Answer')",
+            "sex IS NULL OR sex IN ('Male','Female','Other','Decline to Answer')",
             name="ck_patients_sex",
         ),
+        CheckConstraint("status IN ('draft','registered')", name="ck_patients_status"),
+        CheckConstraint(_REGISTERED_COMPLETE, name="ck_patients_registered_complete"),
     )
 
     patient_id: Mapped[uuid.UUID] = mapped_column(
         Uuid, primary_key=True, default=uuid.uuid4
     )
 
-    # --- Required demographics ---
-    first_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    last_name: Mapped[str] = mapped_column(String(50), nullable=False)
-    date_of_birth: Mapped[date] = mapped_column(Date, nullable=False)
-    sex: Mapped[str] = mapped_column(String(20), nullable=False)
-    phone_number: Mapped[str] = mapped_column(String(10), nullable=False, index=True)
-    address_line_1: Mapped[str] = mapped_column(String(255), nullable=False)
-    city: Mapped[str] = mapped_column(String(100), nullable=False)
-    state: Mapped[str] = mapped_column(String(2), nullable=False)
-    zip_code: Mapped[str] = mapped_column(String(10), nullable=False)
+    # Lifecycle: 'draft' while being collected, 'registered' once confirmed.
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft")
+    # Links an in-progress draft to the Vapi call that is filling it.
+    call_id: Mapped[str | None] = mapped_column(String(100), index=True)
+
+    # --- Required demographics (nullable to allow incremental drafts) ---
+    first_name: Mapped[str | None] = mapped_column(String(50))
+    last_name: Mapped[str | None] = mapped_column(String(50))
+    date_of_birth: Mapped[date | None] = mapped_column(Date)
+    sex: Mapped[str | None] = mapped_column(String(20))
+    phone_number: Mapped[str | None] = mapped_column(String(10), index=True)
+    address_line_1: Mapped[str | None] = mapped_column(String(255))
+    city: Mapped[str | None] = mapped_column(String(100))
+    state: Mapped[str | None] = mapped_column(String(2))
+    zip_code: Mapped[str | None] = mapped_column(String(10))
 
     # --- Optional demographics ---
     email: Mapped[str | None] = mapped_column(String(255))
@@ -84,11 +109,8 @@ class Patient(Base):
 
 
 class CallLog(Base):
-    """One row per completed call (Vapi end-of-call report).
-
-    Stores the transcript and the final structured payload for observability
-    and the optional "call transcript" bonus.
-    """
+    """One row per completed call (Vapi end-of-call report): transcript + summary
+    for observability and the optional transcript bonus."""
 
     __tablename__ = "call_logs"
 

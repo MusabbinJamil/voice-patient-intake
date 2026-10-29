@@ -44,7 +44,9 @@ th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid rgba(127,
   white-space: nowrap; }
 th { font-weight: 600; opacity: .7; text-transform: uppercase; font-size: 11px; letter-spacing: .04em; }
 tr:last-child td { border-bottom: none; }
-.badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(90,160,255,.18); }
+.badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(90,160,255,.18); white-space: nowrap; }
+.badge.ok { background: rgba(80,200,120,.22); }
+.badge.draft { background: rgba(230,180,80,.24); }
 .empty { opacity: .6; padding: 16px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; opacity: .8; }
 pre { white-space: pre-wrap; margin: 0; font-size: 12px; max-width: 900px;
@@ -53,14 +55,23 @@ pre { white-space: pre-wrap; margin: 0; font-size: 12px; max-width: 900px;
 """
 
 
+def _status_badge(status: str) -> str:
+    if status == "registered":
+        return "<span class='badge ok'>registered</span>"
+    return "<span class='badge draft'>in&nbsp;progress</span>"
+
+
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(db: Session = Depends(get_db)):
-    patients = crud.list_patients(db)
+    patients = crud.list_patients(db, status=None)  # registered + live drafts
+    registered = sum(1 for p in patients if p.status == "registered")
+    drafts = len(patients) - registered
     logs = crud.recent_call_logs(db, limit=8)
 
     if patients:
         rows = "\n".join(
-            f"<tr><td class='mono'>{_esc(str(p.patient_id)[:8])}</td>"
+            f"<tr><td>{_status_badge(p.status)}</td>"
+            f"<td class='mono'>{_esc(str(p.patient_id)[:8])}</td>"
             f"<td>{_esc(p.first_name)} {_esc(p.last_name)}</td>"
             f"<td>{_esc(p.date_of_birth)}</td>"
             f"<td>{_esc(p.sex)}</td>"
@@ -73,7 +84,7 @@ def dashboard(db: Session = Depends(get_db)):
         )
         patients_html = (
             "<table><thead><tr>"
-            "<th>ID</th><th>Name</th><th>DOB</th><th>Sex</th><th>Phone</th>"
+            "<th>Status</th><th>ID</th><th>Name</th><th>DOB</th><th>Sex</th><th>Phone</th>"
             "<th>Location</th><th>Insurance</th><th>Lang</th><th>Created</th>"
             f"</tr></thead><tbody>{rows}</tbody></table>"
         )
@@ -103,7 +114,7 @@ def dashboard(db: Session = Depends(get_db)):
 <title>Patient Intake Dashboard</title><style>{_STYLE}</style></head>
 <body>
   <h1>Patient Intake Dashboard</h1>
-  <div class="sub">{len(patients)} active patient(s) · live from the database · demo data is fictional</div>
+  <div class="sub">{registered} registered · {drafts} in progress · live from the database · demo data is fictional</div>
   <div class="card"><h2 style="font-size:14px;margin:0 0 12px">Patients</h2>{patients_html}</div>
   <div class="card"><h2 style="font-size:14px;margin:0 0 12px">Recent Calls <span class="badge">transcripts</span></h2>{logs_html}</div>
 </body></html>"""

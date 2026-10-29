@@ -55,6 +55,7 @@ Table `patients` (see `app/models.py`). Required unless marked optional.
 | Field | Type | Rules |
 |---|---|---|
 | `patient_id` | UUID | auto (PK) |
+| `status` | str | `draft` (being collected) → `registered` (confirmed) |
 | `first_name`, `last_name` | str(50) | letters, spaces, `-`, `'` |
 | `date_of_birth` | date | valid, not future, ≥ 1900 |
 | `sex` | str | `Male` / `Female` / `Other` / `Decline to Answer` (DB CHECK constraint) |
@@ -72,6 +73,11 @@ Table `patients` (see `app/models.py`). Required unless marked optional.
 | `created_at`, `updated_at` | timestamptz | auto, UTC |
 | `deleted_at` | timestamptz | soft-delete marker (null = active) |
 
+Required columns are nullable at the column level (so a `draft` can be partial),
+but a DB **CHECK constraint** (`ck_patients_registered_complete`) guarantees every
+`registered` row has all required fields — completeness is enforced by the database,
+not just the app. `GET /patients` returns `registered` records by default.
+
 Table `call_logs` stores each call's transcript + summary + structured payload,
 linked to a patient by phone when possible (observability + transcript bonus).
 
@@ -82,7 +88,7 @@ Base: `https://voice-patient-intake-ahyy.onrender.com`. Every response is
 
 | Method | Path | Notes |
 |---|---|---|
-| GET | `/patients` | list active; filters `?last_name=` `?date_of_birth=` `?phone_number=` |
+| GET | `/patients` | list registered; filters `?last_name=` `?date_of_birth=` `?phone_number=`; `?status=draft` or `?status=all` to include in-progress drafts |
 | GET | `/patients/{id}` | 404 if missing or soft-deleted |
 | POST | `/patients` | 201 on success, 422 on validation error |
 | PUT | `/patients/{id}` | partial update |
@@ -112,29 +118,43 @@ curl -X PUT https://voice-patient-intake-ahyy.onrender.com/patients/<id> \
 curl -X DELETE https://voice-patient-intake-ahyy.onrender.com/patients/<id>
 ```
 
-## Voice agent ↔ data integration
+## Voice agent ↔ data integration (real-time / incremental)
 
-The Vapi assistant has three function tools, all pointed at `/vapi/webhook`:
+Records are captured **as the caller speaks**, not in one save at the end. A
+patient row has a `status`: `draft` while it's being filled, `registered` once
+confirmed. The Vapi assistant has four function tools, all pointed at
+`/vapi/webhook`:
 
 - `lookup_patient_by_phone` — called early; enables returning-caller detection.
-- `register_patient` — called only after read-back confirmation → `POST` equivalent.
+- `save_patient_progress` — called **every time a field is given**; validates and
+  persists that field immediately to a draft keyed by the Vapi call id, and reports
+  which required fields are still missing.
+- `finalize_registration` — called only after read-back confirmation; flips the
+  draft to `registered`. **Refuses** (returns `INCOMPLETE`) unless every required
+  field is present and valid — so the agent can never claim a save that didn't happen.
 - `update_patient` — for returning callers who choose to update.
 
-The webhook validates the agent's arguments with the same Pydantic schema as the
-API and returns a plain-language result the LLM relays to the caller:
+Every tool validates with the **same Pydantic rules as the REST API**, and returns
+a plain-language result the LLM relays:
+- `SAVED (…)` → field stored; keep going
+- `VALIDATION_ERROR … <field> …` → agent re-prompts for that specific field *immediately*
 - `SUCCESS …` → agent confirms ("You're all set, Jane.")
-- `VALIDATION_ERROR … <field> …` → agent re-prompts for that specific field
+- `INCOMPLETE …` → required fields still missing; agent keeps collecting
 - `DUPLICATE …` / `FOUND …` → agent offers to update instead
 - `SAVE_FAILED …` → agent apologizes; never claims a false success
+
+Benefits: invalid input (e.g. a non-US state) is caught the moment it's spoken,
+and partial data survives a dropped call (the draft is already persisted).
 
 ## Project structure
 
 ```
 app/
-  main.py          FastAPI app, lifespan (create tables + seed), envelope error handlers
+  main.py          FastAPI app, lifespan (create tables + migrate + seed), error handlers
   config.py        env-var settings
   db.py            engine/session (Postgres or SQLite)
-  models.py        Patient, CallLog
+  migrate.py       idempotent startup schema evolution (draft columns)
+  models.py        Patient (draft/registered), CallLog
   schemas.py       PatientCreate / PatientUpdate / PatientOut
   validators.py    phone/name/state/zip/email/DOB/sex rules (shared)
   crud.py          data-access layer
@@ -143,7 +163,7 @@ app/
   seed.py          fictional demo rows
   routers/
     patients.py    REST endpoints
-    vapi.py        voice webhook (tools + end-of-call report)
+    vapi.py        voice webhook (real-time tools + end-of-call report)
 vapi/
   system_prompt.md the LLM system message, documented
   assistant.json   importable Vapi assistant + tool definitions
@@ -205,8 +225,11 @@ No secrets are committed; `.env` is git-ignored.
 
 ## Known limitations & trade-offs (intentional for a 3-hour build)
 
-- **`create_all()` instead of Alembic migrations.** Fine for a greenfield demo;
-  a real system needs versioned migrations.
+- **`create_all()` + a tiny hand-rolled startup migration** (`app/migrate.py`,
+  idempotent `ALTER`s to add the draft columns without dropping data) instead of
+  Alembic. Fine for a demo; a real system needs versioned migrations.
+- **Draft rows accumulate** if calls are abandoned mid-collection. A real system
+  would expire stale drafts (e.g. a periodic cleanup of `status='draft'` older than N).
 - **Render free tier cold start (~1 min).** Mitigated by a 10-min keep-warm ping
   (cron-job.org or the optional GitHub Action in `docs/`);
   if the service still napped, the first call's DB write could be slow. (The
@@ -222,8 +245,10 @@ No secrets are committed; `.env` is git-ignored.
 - ✅ **Duplicate detection** (returning caller by phone → offer update)
 - ✅ **Multi-language** (agent switches to Spanish; stored as `preferred_language`)
 - ✅ **Call transcript** stored and linked to the patient (`call_logs`)
-- ✅ **Dashboard** (`/dashboard`)
-- ✅ **Automated tests** (`tests/`, 12 cases incl. voice-tool round-trip)
+- ✅ **Dashboard** (`/dashboard`, shows registered + live drafts with transcripts)
+- ✅ **Automated tests** (`tests/`, 15 cases incl. the incremental save→finalize flow)
+- ✅ **Real-time incremental capture** (each field persisted as spoken; partial data
+  survives a dropped call)
 
 ## Next steps (if I had more time)
 
