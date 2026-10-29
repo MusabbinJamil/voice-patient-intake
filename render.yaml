@@ -1,0 +1,22 @@
+# Render blueprint. In Render: New > Blueprint, point at this repo.
+# DATABASE_URL and VAPI_SHARED_SECRET are set in the dashboard (sync: false),
+# not in source control.
+services:
+  - type: web
+    name: voice-patient-intake
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: VAPI_SHARED_SECRET
+        sync: false
+      - key: SEED_ON_STARTUP
+        value: "true"
+      - key: APP_ENV
+        value: production
+      - key: PYTHON_VERSION
+        value: "3.12.7"
