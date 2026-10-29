@@ -47,6 +47,7 @@ _PAGE = r"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>RingBinder</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'><rect x='1.5' y='1.5' width='41' height='41' rx='12' fill='%230e2116' stroke='%239fef00' stroke-width='2'/><g fill='%239fef00'><rect x='11' y='18' width='3.4' height='8' rx='1.7'/><rect x='16.3' y='13.5' width='3.4' height='17' rx='1.7'/><rect x='21.6' y='9.5' width='3.4' height='25' rx='1.7'/><rect x='26.9' y='13.5' width='3.4' height='17' rx='1.7'/><rect x='32.2' y='18' width='3.4' height='8' rx='1.7'/></g></svg>">
 <style>
   :root{
     --bg:#06120b; --panel:#0e2116; --panel2:#0b1a11; --row:#0c1d13;
