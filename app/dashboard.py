@@ -47,7 +47,9 @@ tr:last-child td { border-bottom: none; }
 .badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: rgba(90,160,255,.18); }
 .empty { opacity: .6; padding: 16px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; opacity: .8; }
-pre { white-space: pre-wrap; margin: 0; font-size: 12px; max-width: 900px; }
+pre { white-space: pre-wrap; margin: 0; font-size: 12px; max-width: 900px;
+  max-height: 280px; overflow: auto; }
+.summary { font-weight: 600; margin-bottom: 6px; }
 """
 
 
@@ -82,7 +84,10 @@ def dashboard(db: Session = Depends(get_db)):
         log_items = "\n".join(
             f"<tr><td>{_fmt_dt(lg.created_at)}</td>"
             f"<td class='mono'>{_esc(lg.phone_number)}</td>"
-            f"<td><pre>{_esc(lg.summary or (lg.transcript or '')[:400])}</pre></td></tr>"
+            f"<td>"
+            + (f"<div class='summary'>{_esc(lg.summary)}</div>" if lg.summary else "")
+            + f"<pre>{_esc(lg.transcript or '(no transcript)')}</pre>"
+            + "</td></tr>"
             for lg in logs
         )
         logs_html = (
