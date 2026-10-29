@@ -19,9 +19,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
-import urllib.error
-import urllib.request
 
 API = "https://api.vapi.ai"
 DEFAULT_WEBHOOK = "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook"
@@ -108,18 +107,25 @@ def tool_defs(webhook: str, secret: str) -> list[dict]:
 
 
 def _request(method: str, path: str, key: str, body: dict | None = None) -> dict:
-    data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(f"{API}{path}", data=data, method=method)
-    req.add_header("Authorization", f"Bearer {key}")
-    req.add_header("Content-Type", "application/json")
+    # Use curl as the HTTP client. (api.vapi.ai sits behind Cloudflare, which
+    # rejects Python's default urllib user-agent with "error 1010"; curl's
+    # standard client works normally.)
+    cmd = [
+        "curl", "-sS", "-X", method, f"{API}{path}",
+        "-H", f"Authorization: Bearer {key}",
+        "-H", "Content-Type: application/json",
+        "-H", "Accept: application/json",
+    ]
+    if body is not None:
+        cmd += ["-d", json.dumps(body)]
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise SystemExit(f"curl failed for {method} {path}: {proc.stderr.strip()}")
+    out = (proc.stdout or "").strip()
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read().decode() or "{}")
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode(errors="replace")
-        raise SystemExit(f"Vapi API {method} {path} failed [{exc.code}]: {detail}")
-    except urllib.error.URLError as exc:
-        raise SystemExit(f"Network error calling Vapi: {exc}")
+        return json.loads(out or "{}")
+    except json.JSONDecodeError:
+        raise SystemExit(f"Vapi API {method} {path} returned non-JSON: {out}")
 
 
 def main() -> None:
