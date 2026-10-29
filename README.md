@@ -7,8 +7,8 @@ expose the stored records. Call back later and your record is still there.
 
 **Live (fill in after deploy):**
 - 📞 Phone: `+1 (XXX) XXX-XXXX`
-- 🌐 API base URL: `https://YOUR_APP.onrender.com`
-- 📊 Dashboard: `https://YOUR_APP.onrender.com/dashboard`
+- 🌐 API base URL: `https://voice-patient-intake-ahyy.onrender.com`
+- 📊 Dashboard: `https://voice-patient-intake-ahyy.onrender.com/dashboard`
 
 ---
 
@@ -77,7 +77,7 @@ linked to a patient by phone when possible (observability + transcript bonus).
 
 ## REST API
 
-Base: `https://YOUR_APP.onrender.com`. Every response is
+Base: `https://voice-patient-intake-ahyy.onrender.com`. Every response is
 `{"data": <payload-or-null>, "error": <null-or-{code,message,details}>}`.
 
 | Method | Path | Notes |
@@ -95,21 +95,21 @@ Pydantic — the agent is never trusted as the only gate.
 
 ```bash
 # Create
-curl -X POST https://YOUR_APP.onrender.com/patients \
+curl -X POST https://voice-patient-intake-ahyy.onrender.com/patients \
   -H 'content-type: application/json' \
   -d '{"first_name":"Jane","last_name":"Doe","date_of_birth":"03/15/1985",
        "sex":"Female","phone_number":"(512) 555-0142","address_line_1":"100 Congress Ave",
        "city":"Austin","state":"TX","zip_code":"78701"}'
 
 # List / filter
-curl 'https://YOUR_APP.onrender.com/patients?last_name=Doe'
+curl 'https://voice-patient-intake-ahyy.onrender.com/patients?last_name=Doe'
 
 # Update (partial)
-curl -X PUT https://YOUR_APP.onrender.com/patients/<id> \
+curl -X PUT https://voice-patient-intake-ahyy.onrender.com/patients/<id> \
   -H 'content-type: application/json' -d '{"city":"Dallas"}'
 
 # Soft delete
-curl -X DELETE https://YOUR_APP.onrender.com/patients/<id>
+curl -X DELETE https://voice-patient-intake-ahyy.onrender.com/patients/<id>
 ```
 
 ## Voice agent ↔ data integration

@@ -1,5 +1,5 @@
 {
-  "_comment": "Importable Vapi assistant config. Replace YOUR_APP and YOUR_SECRET. The system prompt here is a condensed copy of vapi/system_prompt.md (keep them in sync). Vapi's schema evolves; if import complains, create the assistant in the dashboard and copy these values field-by-field.",
+  "_comment": "Importable Vapi assistant config. Server URL is already set to the live Render app; replace YOUR_SECRET with your VAPI_SHARED_SECRET. The system prompt here is a condensed copy of vapi/system_prompt.md (keep them in sync). Vapi's schema evolves; if import complains, create the assistant in the dashboard and copy these values field-by-field.",
   "name": "Patient Intake — Avery",
   "firstMessage": "Hi, thanks for calling. I can help get you registered as a new patient. To start, could I get your first name?",
   "model": {
@@ -27,7 +27,7 @@
             "required": ["phone_number"]
           }
         },
-        "server": { "url": "https://YOUR_APP.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" }
+        "server": { "url": "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" }
       },
       {
         "type": "function",
@@ -58,7 +58,7 @@
             "required": ["first_name", "last_name", "date_of_birth", "sex", "phone_number", "address_line_1", "city", "state", "zip_code"]
           }
         },
-        "server": { "url": "https://YOUR_APP.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" }
+        "server": { "url": "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" }
       },
       {
         "type": "function",
@@ -90,13 +90,13 @@
             "required": ["patient_id"]
           }
         },
-        "server": { "url": "https://YOUR_APP.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" }
+        "server": { "url": "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" }
       }
     ]
   },
   "voice": { "provider": "vapi", "voiceId": "Elliot" },
   "transcriber": { "provider": "deepgram", "model": "nova-2", "language": "en" },
-  "server": { "url": "https://YOUR_APP.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" },
+  "server": { "url": "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" },
   "endCallPhrases": ["goodbye", "take care", "have a great day"],
   "silenceTimeoutSeconds": 30,
   "maxDurationSeconds": 600
