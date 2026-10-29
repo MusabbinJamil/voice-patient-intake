@@ -129,6 +129,18 @@ def tool_defs(webhook: str, secret: str) -> list[dict]:
     ]
 
 
+def load_system_prompt() -> str | None:
+    """The agent prompt from vapi/system_prompt.md (everything after the --- rule)."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "vapi", "system_prompt.md")
+    try:
+        text = open(path, encoding="utf-8").read()
+    except OSError:
+        return None
+    parts = text.split("\n---\n", 1)
+    body = (parts[1] if len(parts) == 2 else text).strip()
+    return body or None
+
+
 def _request(method: str, path: str, key: str, body: dict | None = None) -> dict:
     # Use curl as the HTTP client. (api.vapi.ai sits behind Cloudflare, which
     # rejects Python's default urllib user-agent with "error 1010"; curl's
@@ -188,12 +200,19 @@ def main() -> None:
 
     # Replace (not append) so re-running cleanly swaps the tool set.
     model["toolIds"] = tool_ids
+    # Also push the current system prompt so Vapi matches the repo.
+    prompt = load_system_prompt()
+    if prompt:
+        model["messages"] = [{"role": "system", "content": prompt}]
+        print(f"Setting system prompt from vapi/system_prompt.md ({len(prompt)} chars)")
+    else:
+        print("WARNING: could not read vapi/system_prompt.md — leaving prompt unchanged")
     patch = {
         "model": model,
         "server": {"url": webhook, "secret": secret},
         "serverMessages": ["end-of-call-report", "status-update"],
     }
-    print("Attaching new tools + wiring end-of-call webhook ...")
+    print("Attaching new tools + prompt + wiring end-of-call webhook ...")
     updated = _request("PATCH", f"/assistant/{assistant_id}", key, patch)
 
     # Delete the now-detached old tools to keep the account tidy.
