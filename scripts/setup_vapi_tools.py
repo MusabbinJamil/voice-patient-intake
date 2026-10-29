@@ -211,8 +211,10 @@ def main() -> None:
         "model": model,
         "server": {"url": webhook, "secret": secret},
         "serverMessages": ["end-of-call-report", "status-update"],
+        # Vapi hangs up when the assistant says one of these (graceful end).
+        "endCallPhrases": ["goodbye", "take care", "have a great day"],
     }
-    print("Attaching new tools + prompt + wiring end-of-call webhook ...")
+    print("Attaching new tools + prompt + end-call phrases + webhook ...")
     updated = _request("PATCH", f"/assistant/{assistant_id}", key, patch)
 
     # Delete the now-detached old tools to keep the account tidy.

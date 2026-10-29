@@ -85,6 +85,7 @@
   "transcriber": { "provider": "deepgram", "model": "nova-2", "language": "en" },
   "server": { "url": "https://voice-patient-intake-ahyy.onrender.com/vapi/webhook", "secret": "YOUR_SECRET" },
   "serverMessages": ["end-of-call-report", "status-update"],
+  "endCallPhrases": ["goodbye", "take care", "have a great day"],
   "silenceTimeoutSeconds": 30,
   "maxDurationSeconds": 600
 }
