@@ -5,8 +5,8 @@ patient demographics in natural conversation, reads them back for confirmation,
 and saves them to a persistent database. A REST API and a small web dashboard
 expose the stored records. Call back later and your record is still there.
 
-**Live (fill in after deploy):**
-- 📞 Phone: `+1 (XXX) XXX-XXXX`
+**Live:**
+- 📞 Phone: `+1 (858) 399-4102`
 - 🌐 API base URL: `https://voice-patient-intake-ahyy.onrender.com`
 - 📊 Dashboard: `https://voice-patient-intake-ahyy.onrender.com/dashboard`
 
